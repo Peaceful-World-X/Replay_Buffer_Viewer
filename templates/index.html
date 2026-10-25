@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Replay Buffer Viewer</title>
+  <link rel="stylesheet" href="/static/styles.css?v={{ asset_version }}">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">R</span><div><strong>Replay Viewer</strong><small>RL trajectory inspector</small></div></div>
+    <div id="statusBadge" class="status idle"><span></span>等待载入</div>
+  </header>
+
+  <main>
+    <section class="loader">
+      <label for="pathInput">Trajectory 文件或 Replay Buffer 目录</label>
+      <div class="load-row">
+        <input id="pathInput" spellcheck="false" placeholder="/absolute/path/to/trajectory.pt or rank_0">
+        <button id="loadBtn" class="primary">打开数据</button>
+      </div>
+      <p id="loadError" class="error"></p>
+    </section>
+
+    <div id="workspace" class="workspace hidden">
+      <div id="collectionShell" class="collection-shell">
+        <aside id="trajectorySidebar" class="trajectory-sidebar hidden">
+          <div class="sidebar-head">
+            <div><span>REPLAY BUFFER</span><strong id="collectionCount">0 trajectories</strong></div>
+            <button id="sidebarToggle" title="收起边栏">&#10094;</button>
+          </div>
+          <input id="trajectorySearch" class="trajectory-search" placeholder="Search trajectory">
+          <div id="trajectoryList" class="trajectory-list"></div>
+        </aside>
+        <button id="sidebarOpen" class="sidebar-open hidden" title="展开 trajectory 列表">&#10095;</button>
+        <div class="trajectory-content">
+      <section class="summary-band">
+        <div><span>文件</span><strong id="fileName">-</strong></div>
+        <div><span>时长</span><strong id="duration">-</strong></div>
+        <div><span>有效帧</span><strong id="validFrames">-</strong></div>
+        <div><span>Chunks</span><strong id="chunks">-</strong></div>
+        <div><span>文件大小</span><strong id="fileSize">-</strong></div>
+        <div class="wide"><span>Weights ID</span><strong id="weightsId">-</strong></div>
+      </section>
+
+      <section class="video-section">
+        <div class="section-head"><div><h1>同步相机画面</h1><p>前置与双腕相机 · H.264 压缩传输</p></div><div class="camera-status"><span>CONTROL</span><strong id="controlStatus" class="base">BASE</strong></div><div id="timeReadout" class="time-readout">00:00.000 / 00:00.000</div></div>
+        <div class="camera-grid">
+          <article class="camera"><div class="camera-label"><span></span>左腕相机 <b>LEFT</b></div><video id="videoLeft" muted playsinline preload="metadata"></video></article>
+          <article class="camera"><div class="camera-label"><span></span>前置相机 <b>MAIN</b></div><video id="videoMain" muted playsinline preload="metadata"></video></article>
+          <article class="camera"><div class="camera-label"><span></span>右腕相机 <b>RIGHT</b></div><video id="videoRight" muted playsinline preload="metadata"></video></article>
+        </div>
+        <div class="transport">
+          <button id="backBtn" class="icon-btn" title="上一帧">&#10094;|</button>
+          <button id="playBtn" class="play-btn" title="播放 / 暂停"><span id="playIcon">&#9654;</span></button>
+          <button id="forwardBtn" class="icon-btn" title="下一帧">|&#10095;</button>
+          <div class="timeline-wrap"><input id="timeline" type="range" min="0" max="1" value="0" step="0.001"><div class="timeline-meta"><span id="frameReadout">Frame 0</span><span id="chunkReadout">Chunk 0 · Step 0</span></div></div>
+          <label class="filter-toggle" title="按 chunk_valid_mask 跳过每个 chunk 的无效重复尾帧"><input id="validOnly" type="checkbox" checked><span></span>剔除无效帧</label>
+          <select id="speedSelect" title="播放速度"><option value="0.5">0.5×</option><option value="1" selected>1×</option><option value="1.5">1.5×</option><option value="2">2×</option></select>
+        </div>
+      </section>
+
+      <section class="reward-strip panel">
+        <div class="reward-summary">
+          <div><span>SPARSE REWARD</span><strong id="rewardCurrent">0.0000</strong></div>
+          <div><span>NON-ZERO EVENTS</span><b id="rewardEvents">0</b></div>
+          <div><span>TOTAL</span><b id="rewardTotal">0.0000</b></div>
+        </div>
+        <div id="rewardTrack" class="reward-track">
+          <canvas id="rewardCanvas"></canvas>
+          <div id="rewardCursor" class="reward-cursor"></div>
+          <div id="rewardTooltip" class="reward-tooltip"></div>
+        </div>
+      </section>
+
+      <section class="data-grid">
+        <div class="panel chart-panel">
+          <div class="panel-head"><div><h2>时序数据</h2><p>全部分量曲线 · 点击图例切换显示</p></div><div class="selectors"><select id="seriesSelect"></select></div></div>
+          <div class="chart-wrap"><canvas id="chart"></canvas><div id="chartTooltip" class="chart-tooltip"></div></div>
+          <div id="legend" class="legend"></div>
+        </div>
+        <aside class="panel inspector">
+          <div class="panel-head"><div><h2>当前帧</h2><p id="currentLocation">Chunk 0 · Step 0</p></div></div>
+          <div id="frameValues" class="frame-values"></div>
+        </aside>
+      </section>
+
+      <section class="panel structure-panel">
+        <div class="panel-head"><div><h2>完整数据结构</h2><p>展开查看所有字段、shape、dtype 与存储大小</p></div><input id="treeSearch" placeholder="搜索字段"></div>
+        <div id="dataTree" class="data-tree"></div>
+      </section>
+        </div>
+      </div>
+    </div>
+  </main>
+  <script src="/static/app.js?v={{ asset_version }}"></script>
+</body>
+</html>
