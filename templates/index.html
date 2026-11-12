@@ -41,6 +41,11 @@
             <option value="all">全部轨迹</option>
             <option value="human">只看含人工介入</option>
           </select>
+          <select id="outcomeFilter" class="trajectory-filter" aria-label="按成功失败筛选">
+            <option value="all">全部结果</option>
+            <option value="success">只看成功</option>
+            <option value="failure">只看失败</option>
+          </select>
           <p id="trajectoryFilterCount" class="trajectory-filter-count"></p>
           <div id="trajectoryList" class="trajectory-list"></div>
         </aside>
@@ -53,6 +58,11 @@
         <div><span id="chunksLabel">Chunks</span><strong id="chunks">-</strong></div>
         <div><span>文件大小</span><strong id="fileSize">-</strong></div>
         <div class="wide"><span id="weightsLabel">Weights ID</span><strong id="weightsId">-</strong></div>
+      </section>
+
+      <section id="annotationModeBar" class="annotation-mode-bar hidden" aria-label="标注模式">
+        <div><strong id="annotationModeName" aria-live="polite">Actor 起止标定</strong><p id="annotationModeHelp">设置 actor 的开启帧和关闭帧，生成完整轨迹的 0/1 标签。</p></div>
+        <button id="annotationModeToggle" type="button" aria-controls="gatePanel reviewPanel">切换到片段裁剪</button>
       </section>
 
       <section class="video-section">
@@ -76,6 +86,24 @@
           <div id="controlTrack" class="control-track" aria-label="推理与人工介入时间轴"></div>
           <div class="phase-legend"><span class="phase-inference">紫色：模型推理</span><span class="phase-human">蓝色：人工介入</span><span class="phase-unknown">灰色：未知</span><span>悬停查看帧号 · 点击跳转</span></div>
         </div>
+      </section>
+
+      <section id="gatePanel" class="panel gate-panel hidden">
+        <div class="panel-head"><div><h2>Actor 门控 · 开启与关闭标注</h2><p>接近孔口时开启，确认穿过时关闭。导出完整 episode 的逐帧标签，不限制为最后100帧。</p></div><strong id="gatePosition">未标注</strong></div>
+        <fieldset id="gateControls" disabled>
+          <div class="gate-boundaries">
+            <article class="gate-boundary"><button id="gateMarkStart">当前帧设为开启 <kbd>[</kbd></button><label>开启帧（含本帧，标为1）<input id="gateStart" type="number" min="0" step="1" placeholder="请选择接近孔口的第一帧"></label><div id="gateStartImages" class="gate-images"></div></article>
+            <article class="gate-boundary"><button id="gateMarkEnd">当前帧设为关闭 <kbd>]</kbd></button><label>关闭帧（本帧开始标为0）<input id="gateEnd" type="number" min="0" step="1" placeholder="请选择确认穿过的第一帧"></label><div id="gateEndImages" class="gate-images"></div></article>
+          </div>
+          <div id="gateTrack" class="gate-track" aria-label="Actor 开启关闭标签时间轴"></div>
+          <p id="gateSummary">请分别标记开启和关闭两帧。</p>
+          <label class="gate-note">备注 <input id="gateNote" maxlength="1000" placeholder="例如：首次接近即开启，重试期间保持开启"></label>
+          <div class="review-actions"><button id="gateJumpStart">跳到开启帧</button><button id="gateJumpEnd">跳到关闭帧</button><button id="gateResetDraft">恢复已保存标注</button><button id="gateSave" class="primary">保存标注并自动导出</button></div>
+          <div class="review-actions"><button id="gateAllOff">确认整条均为0</button><button id="gateRemove">移除此条门控标注</button><button id="gateExport">重新导出已标注轨迹</button><a id="gateDownload" class="review-download hidden">下载逐帧标签 CSV</a></div>
+        </fieldset>
+        <p id="gateMessage" class="review-message" role="status"></p>
+        <p id="gateExportMessage" class="review-message" role="status"></p>
+        <p class="review-help">绿色=1（应开启 actor），灰色=0（应关闭），橙色=尚未保存；未标注 episode 不参与导出。这里标注的是应有开关，不是原始人工介入或任务成功标签。保存后自动更新 actor_gate_training/，原始动作和视频保持完整。</p>
       </section>
 
       <section id="reviewPanel" class="panel review-panel hidden">
@@ -136,6 +164,7 @@
   </main>
   <script src="/static/control.js?v={{ asset_version }}"></script>
   <script src="/static/review.js?v={{ asset_version }}"></script>
+  <script src="/static/gate.js?v={{ asset_version }}"></script>
   <script src="/static/app.js?v={{ asset_version }}"></script>
 </body>
 </html>

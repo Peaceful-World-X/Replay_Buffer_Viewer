@@ -102,6 +102,7 @@ const Review = (() => {
     el('completeReview').onclick=()=>mutate('/api/review/complete','POST',{},'此 episode 已标记检查完成。');
     el('exportReview').onclick=exportSaved;
     document.addEventListener('keydown',e=>{if(!state||busy||state.entry.stale||e.repeat||e.ctrlKey||e.metaKey||e.altKey||(/TEXTAREA|SELECT/.test(e.target.tagName)||(e.target.tagName==='INPUT'&&e.target.type!=='range'))||e.target.isContentEditable)return;
+      if(['i','o'].includes(e.key)&&!AnnotationMode.active('review'))return;
       if(['i','o',' ','ArrowLeft','ArrowRight'].includes(e.key)){e.preventDefault();if(e.key==='i')capture('start');else if(e.key==='o')capture('end');else if(e.key===' ')togglePlay();else{stopPreview();pausePlayback();seekTo((frame()+(e.key==='ArrowLeft'?-1:1))/meta.fps)}}});
     const job=sessionStorage.getItem('reviewExportJob');if(job)pollExport(job);
   });

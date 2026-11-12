@@ -26,3 +26,29 @@ input,select,button{font:inherit;letter-spacing:0}input,select{border:1px solid 
 
 .trajectory-filter{display:block;width:calc(100% - 20px);margin:0 10px;padding:6px 8px;font-size:11px}.trajectory-filter-count{font-size:10px;color:var(--muted);margin:7px 12px 9px}.trajectory-list{height:calc(100% - 178px)}.trajectory-item .intervention-badge{display:inline-block;padding:2px 5px;margin:0 0 5px;font-size:10px;color:#1d4ed8;background:#dbeafe;border-radius:3px}.trajectory-empty{padding:8px 6px;color:var(--muted);font-size:11px;line-height:1.6}@media(max-width:980px){.trajectory-list{height:102px}}
 .outcome-badge{display:inline-flex;align-items:center;padding:3px 8px;border-radius:4px;font-size:12px;font-weight:700;white-space:nowrap}.outcome-success{color:#086346;background:#d7f3e5}.outcome-failure{color:#b42328;background:#fee4e5}.outcome-unknown{color:#52606d;background:#edf1f4}.summary-outcome{display:flex;align-items:center;gap:8px;margin-top:9px}.summary-outcome>span{margin:0;font-size:10px}.trajectory-badges{display:flex;align-items:center;flex-wrap:wrap;gap:5px;margin-bottom:5px}.trajectory-badges .outcome-badge{font-size:10px;padding:2px 5px}.trajectory-badges .intervention-badge{margin:0}.trajectory-filter-count{white-space:pre-line;line-height:1.6}.trajectory-sidebar{display:flex;flex-direction:column}.trajectory-sidebar>.sidebar-head,.trajectory-sidebar>.trajectory-search,.trajectory-sidebar>.trajectory-filter,.trajectory-sidebar>.trajectory-filter-count{flex-shrink:0}.trajectory-sidebar>.trajectory-list{flex:1;min-height:0;height:auto}
+
+/* Full-episode gate labels are separate from retained action clips. */
+.gate-panel{border-top:4px solid #087f66}
+.gate-panel fieldset{border:0;padding:0;margin:0;min-width:0}
+.gate-boundaries{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+.gate-boundary{border:1px solid #dbe4ec;border-radius:10px;padding:14px;min-width:0;background:#fafcfd}
+.gate-boundary label{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:12px 0;font-size:14px}
+.gate-boundary input{width:130px;max-width:45%;padding:8px}
+.gate-images{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;min-height:90px;color:#687789;font-size:13px}
+.gate-images figure{margin:0;min-width:0}.gate-images img{width:100%;display:block;aspect-ratio:4/3;object-fit:contain;background:#14212a;border-radius:5px}.gate-images figcaption{padding-top:5px;text-align:center}
+.gate-track{height:40px;position:relative;overflow:hidden;margin:20px 0 8px;background:#e4e9ee;border-radius:5px;cursor:pointer}
+.gate-track.gate-unknown{background:repeating-linear-gradient(135deg,#edf0f4,#edf0f4 8px,#e3e7eb 8px,#e3e7eb 16px)}
+.gate-on{position:absolute;top:0;height:100%;background:#bce7d7;color:#075c42;text-align:center;padding-top:10px;white-space:nowrap;overflow:hidden;font-size:13px}
+.gate-on.draft{background:#ffe2bb;color:#9b5100}
+.gate-note{display:flex;align-items:center;gap:12px;margin:12px 0}.gate-note input{flex:1;min-width:0;padding:9px}
+.gate-sidebar-badge{color:#087f66!important}
+.gate-panel .review-message{overflow-wrap:anywhere}
+@media(max-width:1100px){.gate-boundaries{grid-template-columns:1fr}}
+
+.annotation-mode-bar{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-top:16px;padding:14px 18px;background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--accent);border-radius:var(--radius)}
+.annotation-mode-bar strong{font-size:14px}.annotation-mode-bar p{margin:5px 0 0;color:var(--muted);font-size:12px;line-height:1.5}.annotation-mode-bar button{flex-shrink:0;padding:10px 14px;background:var(--accent);color:#fff;border-radius:5px;font-weight:600;font-size:12px}.annotation-mode-bar button:focus-visible{outline:3px solid #20c997;outline-offset:3px}
+body[data-annotation-mode="gate"] #reviewPanel,body[data-annotation-mode="review"] #gatePanel{display:none!important}
+body[data-annotation-available="true"][data-annotation-mode="gate"] .review-badge,body[data-annotation-available="true"][data-annotation-mode="gate"] #openTraining,body[data-annotation-available="true"][data-annotation-mode="review"] .gate-sidebar-badge{display:none!important}
+@media(max-width:640px){.annotation-mode-bar{align-items:stretch;flex-direction:column}.annotation-mode-bar button{align-self:flex-start}}
+
+.trajectory-filter + .trajectory-filter{margin-top:7px}

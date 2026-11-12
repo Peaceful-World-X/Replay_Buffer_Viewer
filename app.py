@@ -19,6 +19,7 @@ import torch
 from flask import Flask, Response, jsonify, render_template, request, send_file
 
 import lerobot_source
+import gate_annotations
 import review
 import training_export
 
@@ -625,6 +626,7 @@ def index() -> str:
         (ROOT / "static" / "styles.css").stat().st_mtime_ns,
         (ROOT / "static" / "review.js").stat().st_mtime_ns,
         (ROOT / "static" / "control.js").stat().st_mtime_ns,
+        (ROOT / "static" / "gate.js").stat().st_mtime_ns,
     )
     return render_template("index.html", asset_version=asset_version)
 
@@ -940,6 +942,111 @@ def export_review_status(job_id):
         if job_id not in _exports:
             return jsonify(error="导出任务不存在，请检查服务是否重启。"), 404
         return jsonify(_exports[job_id])
+
+
+def _gate_job(path):
+    return next((identifier for identifier, job in _exports.items()
+                 if job.get("kind") == "actor_gate" and job["source"] == str(path)
+                 and job["status"] == "running"), None)
+
+
+def _gate_response(path, context):
+    result = gate_annotations.state_for(path, context["episode"], context["fingerprint"])
+    result["jobId"] = _gate_job(path)
+    return result
+
+
+def _start_gate_export(path):
+    if _gate_job(path):
+        raise ValueError("门控数据正在导出，请等待完成后再修改。")
+    identifier = uuid.uuid4().hex
+    job = {"kind": "actor_gate", "source": str(path), "status": "running", "message": "准备导出完整轨迹门控标签…"}
+    _exports[identifier] = job
+    def run():
+        try:
+            def progress(message):
+                with _lock:
+                    job["message"] = message
+            result = gate_annotations.export(path, progress)
+            with _lock:
+                job.update(status="complete", result=result, message="门控训练数据已导出")
+        except Exception as exc:
+            with _lock:
+                job.update(status="failed", message=str(exc))
+    threading.Thread(target=run, daemon=True).start()
+    return identifier
+
+
+@app.get("/api/gate")
+def get_gate():
+    try:
+        with _lock:
+            _, path, _, context = _review_current()
+            return jsonify(_gate_response(path, context))
+    except Exception as exc:
+        return jsonify(error=str(exc)), 409 if isinstance(exc, review.ReviewConflict) else 400
+
+
+@app.post("/api/gate")
+@app.delete("/api/gate")
+def save_gate():
+    try:
+        with _lock:
+            _, path, _, context = _review_current()
+            if _gate_job(path):
+                raise review.ReviewConflict("门控数据正在导出，请等待完成后再修改。")
+            gate_annotations.check_target(path)
+            gate_annotations.update(path, context["episode"], context["fingerprint"],
+                                    request.get_json(force=True), remove=request.method == "DELETE")
+            _start_gate_export(path)
+            return jsonify(_gate_response(path, context))
+    except Exception as exc:
+        return jsonify(error=str(exc)), 409 if isinstance(exc, review.ReviewConflict) else 400
+
+
+@app.post("/api/gate/export")
+def export_gate():
+    try:
+        with _lock:
+            _, path, _, _ = _review_current()
+            return jsonify(jobId=_start_gate_export(path))
+    except Exception as exc:
+        return jsonify(error=str(exc)), 400
+
+
+@app.get("/api/gate/image/<camera>")
+def gate_image(camera):
+    try:
+        with _lock:
+            _, _, info, _ = _review_current()
+            frame = int(request.args.get("frame", "-1"))
+            if not 0 <= frame < info["totalFrames"] or camera not in info["media"]:
+                raise ValueError("相机或帧号无效。")
+            media = info["media"][camera]
+        payload = gate_annotations.image_at(media, frame)
+        return send_file(io.BytesIO(payload), mimetype="image/jpeg")
+    except Exception as exc:
+        return jsonify(error=str(exc)), 409 if isinstance(exc, review.ReviewConflict) else 400
+
+
+@app.get("/api/gate/download/<kind>")
+def download_gate(kind):
+    try:
+        with _lock:
+            _, path, _, context = _review_current()
+            state = _gate_response(path, context)
+            if kind == "annotations":
+                value = json.dumps(gate_annotations.read_store(path), ensure_ascii=False, indent=2).encode()
+                return send_file(io.BytesIO(value), mimetype="application/json", as_attachment=True,
+                                 download_name=gate_annotations.STORE)
+            names = {"manifest": "labels_manifest.json", "csv": "frame_labels.csv"}
+            if kind not in names or not state["exportCurrent"]:
+                raise ValueError("请先完成最新门控数据的导出。")
+            data = (path / gate_annotations.DIRECTORY / names[kind]).read_bytes()
+            return send_file(io.BytesIO(data), as_attachment=True, download_name=names[kind],
+                             mimetype="text/csv" if kind == "csv" else "application/json")
+    except Exception as exc:
+        return jsonify(error=str(exc)), 400
 
 
 if __name__ == "__main__":

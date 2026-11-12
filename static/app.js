@@ -7,6 +7,32 @@ let activeEpisodeId = null;
 let trajectoryCollection = [], activeTrajectoryPath = '', trajectoryLoadVersion = 0;
 let timelineTime = 0, playbackTimer = null, playbackVersion = 0, playbackError = false;
 const cameraNames = ['main', 'left', 'right'];
+const AnnotationMode = (() => {
+  let mode = 'gate', available = false;
+  try { if (localStorage.getItem('replay-annotation-mode') === 'review') mode = 'review'; } catch (_) {}
+  function name() { return mode === 'gate' ? 'Actor 起止标定' : '片段裁剪'; }
+  function render() {
+    document.body.dataset.annotationMode = mode;
+    document.body.dataset.annotationAvailable = String(available);
+    $('annotationModeBar').classList.toggle('hidden', !available);
+    $('annotationModeName').textContent = name();
+    $('annotationModeHelp').textContent = mode === 'gate'
+      ? '设置 actor 的开启帧和关闭帧，生成完整轨迹的 0/1 标签。快捷键：[ 开启，] 关闭。'
+      : '选择需要保留的动作片段并导出裁剪数据。快捷键：I 开始，O 结束。';
+    $('annotationModeToggle').textContent = mode === 'gate' ? '切换到片段裁剪' : '切换到 Actor 起止标定';
+  }
+  function select(next) {
+    mode = next === 'review' ? 'review' : 'gate';
+    Review.stopPreview();
+    try { localStorage.setItem('replay-annotation-mode', mode); } catch (_) {}
+    render();
+    if (navigationContext) updateNavigation(navigationContext);
+  }
+  $('annotationModeToggle').onclick = () => select(mode === 'gate' ? 'review' : 'gate');
+  render();
+  return {name, select, active: value => available && mode === value,
+    setAvailable(value) { available = value; render(); }};
+})();
 function activeVideos(){return videos.filter((v,i)=>meta?.cameras.includes(cameraNames[i]))}
 function playbackVideo(){return activeVideos()[0]}
 function pausePlayback(){playbackVersion++;playing=false;clearInterval(playbackTimer);playbackTimer=null;videos.forEach(v=>v.pause());$('playIcon').innerHTML='&#9654;'}
@@ -28,31 +54,31 @@ function updateOutcome(item){const result=outcomeDisplay(item),badge=$('trajecto
 async function api(url, options){const response=await fetch(url,options),type=response.headers.get('content-type')||'';if(!type.includes('application/json'))throw new Error(`Server returned ${response.status} ${type||'non-JSON response'}; restart run.sh and refresh this page`);const body=await response.json();if(!response.ok)throw new Error(body.error||response.statusText);return body}
 
 let navigationContext=null;
-function updateNavigation(context){navigationContext=context;const original=context.sourceType==='lerobot',training=context.sourceType==='training_replay';$('datasetNav').classList.toggle('hidden',!original&&!training);if(!original&&!training)return;$('datasetMode').textContent=original?'原始数据 · 可重新裁剪':'训练轨迹 · 导出结果预览';const origin=training&&context.sourceRange?` · 原始 Episode ${context.sourceEpisodeId} · 帧 ${context.sourceRange[0]}–${context.sourceRange[1]-1}`:'';$('datasetLocation').textContent=(training?context.trainingDirectory:context.sourceDirectory||context.directory)+origin;$('openTraining').classList.toggle('hidden',!original);$('openTraining').disabled=!context.trainingExists;$('returnOriginal').classList.toggle('hidden',!training)}
+function updateNavigation(context){navigationContext=context;const original=context.sourceType==='lerobot',training=context.sourceType==='training_replay';$('datasetNav').classList.toggle('hidden',!original&&!training);if(!original&&!training)return;$('datasetMode').textContent=original?`原始数据 · ${AnnotationMode.name()}`:'训练轨迹 · 导出结果预览';const origin=training&&context.sourceRange?` · 原始 Episode ${context.sourceEpisodeId} · 帧 ${context.sourceRange[0]}–${context.sourceRange[1]-1}`:'';$('datasetLocation').textContent=(training?context.trainingDirectory:context.sourceDirectory||context.directory)+origin;$('openTraining').classList.toggle('hidden',!original);$('openTraining').disabled=!context.trainingExists;$('returnOriginal').classList.toggle('hidden',!training)}
 async function openDataset(path,episodeId=null,segmentId=null){$('pathInput').value=path;await openInput({episodeId,segmentId})}
 async function openInput(options={}){
   const path=$('pathInput').value.trim();if(!path)return;
   if(path.toLowerCase().endsWith('.pt')){hideTrajectorySidebar();await loadTrajectory(path);return}
   $('loadBtn').disabled=true;$('loadBtn').textContent='正在读取目录…';$('loadError').textContent='';
   try{
-    const collection=await api('/api/browse',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path})});trajectoryCollection=collection.trajectories;$('interventionFilter').value='all';
+    const collection=await api('/api/browse',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path})});trajectoryCollection=collection.trajectories;$('interventionFilter').value='all';$('outcomeFilter').value='all';
     history.replaceState(null,'',`?file=${encodeURIComponent(path)}${options.episodeId!==null&&options.episodeId!==undefined?'&episode='+options.episodeId:''}`);
     $('emptyTraining').classList.toggle('hidden',trajectoryCollection.length>0);
-    if(!trajectoryCollection.length){Review.beginLoad();pausePlayback();meta=null;hideTrajectorySidebar();$('workspace').classList.add('hidden');updateNavigation(collection);$('statusBadge').innerHTML='<span></span>暂无保留轨迹';return}
+    if(!trajectoryCollection.length){AnnotationMode.setAvailable(false);Review.beginLoad();Gate.beginLoad();pausePlayback();meta=null;hideTrajectorySidebar();$('workspace').classList.add('hidden');updateNavigation(collection);$('statusBadge').innerHTML='<span></span>暂无保留轨迹';return}
     showTrajectorySidebar(collection);const selected=trajectoryCollection.find(item=>item.episodeId===options.episodeId)||trajectoryCollection[0];await loadTrajectory(selected.path,true,selected.episodeId);
-    if(options.segmentId)Review.editSegment(options.segmentId);
+    if(options.segmentId){AnnotationMode.select('review');Review.editSegment(options.segmentId);}
   }
   catch(error){$('loadError').textContent=error.message;$('statusBadge').className='status idle';$('statusBadge').innerHTML='<span></span>载入失败'}
   finally{$('loadBtn').disabled=false;$('loadBtn').textContent='打开数据'}
 }
 
 async function loadTrajectory(path,fromCollection=false,episodeId=null){
-  if(!path)return;const loadVersion=++trajectoryLoadVersion;frameRequestVersion++;clearTimeout(frameRequest);Review.beginLoad();Control.reset();
+  if(!path)return;const loadVersion=++trajectoryLoadVersion;frameRequestVersion++;clearTimeout(frameRequest);AnnotationMode.setAvailable(false);Review.beginLoad();Gate.beginLoad();Control.reset();
   $('loadBtn').disabled=true;$('loadBtn').textContent='正在解析…';$('loadError').textContent='';
   $('trajectoryOutcome').textContent='载入中';$('trajectoryOutcome').className='outcome-badge outcome-unknown';$('trajectoryOutcome').title='';
   try{
     pausePlayback();videos.forEach(v=>{v.removeAttribute('src');v.load()});
-    const loaded=await api('/api/load',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path,episodeId})});if(loadVersion!==trajectoryLoadVersion)return;meta=loaded;activeEpisodeId=meta.episodeId??null;
+    const loaded=await api('/api/load',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({path,episodeId})});if(loadVersion!==trajectoryLoadVersion)return;meta=loaded;AnnotationMode.setAvailable(meta.sourceType==='lerobot');activeEpisodeId=meta.episodeId??null;
     activeTrajectoryPath=path;frameRequestVersion++;markActiveTrajectory();updateNavigation(meta);$('emptyTraining').classList.add('hidden');
     updateOutcome(meta);
     $('workspace').classList.remove('hidden');$('statusBadge').className='status ready';$('statusBadge').innerHTML='<span></span>数据已载入';
@@ -60,7 +86,7 @@ async function loadTrajectory(path,fromCollection=false,episodeId=null){
     $('chunksLabel').textContent=meta.sourceType==='lerobot'?'数据帧':'Chunks';$('weightsLabel').textContent=meta.sourceType==='lerobot'?'数据格式':'Weights ID';if(meta.sourceType==='lerobot')$('chunks').textContent=meta.totalFrames;if(meta.sourceType==='training_replay'){$('chunksLabel').textContent='Transitions';$('weightsLabel').textContent='导出格式'}
     $('validOnly').disabled=!meta.hasValidMask;$('validOnly').checked=meta.hasValidMask;
     refreshMedia();
-    buildSeries();renderTree(meta.tree,$('dataTree'));await Promise.all([loadDefaultSeries(),loadRewards(),Control.load(),Review.load()]);if(loadVersion!==trajectoryLoadVersion)return;seekTo(0);window.scrollTo({top:0,behavior:'smooth'});
+    buildSeries();renderTree(meta.tree,$('dataTree'));await Promise.all([loadDefaultSeries(),loadRewards(),Control.load(),Review.load(),Gate.load()]);if(loadVersion!==trajectoryLoadVersion)return;seekTo(0);window.scrollTo({top:0,behavior:'smooth'});
   }catch(error){updateOutcome(meta||{});$('loadError').textContent=error.message;$('statusBadge').className='status idle';$('statusBadge').innerHTML='<span></span>载入失败'}
   finally{$('loadBtn').disabled=false;$('loadBtn').textContent='打开数据'}
 }
@@ -70,12 +96,16 @@ function hideTrajectorySidebar(){$('trajectorySidebar').classList.add('hidden');
 function collapseTrajectorySidebar(){$('trajectorySidebar').classList.add('hidden');$('sidebarOpen').classList.remove('hidden');$('collectionShell').classList.remove('with-sidebar')}
 function expandTrajectorySidebar(){$('trajectorySidebar').classList.remove('hidden');$('sidebarOpen').classList.add('hidden');$('collectionShell').classList.add('with-sidebar')}
 function filteredTrajectories(){
-  const query=$('trajectorySearch').value.trim().toLowerCase(),humanOnly=$('interventionFilter').value==='human';
-  return trajectoryCollection.filter(item=>(!humanOnly||item.hasIntervention)&&(!query||String(item.id).includes(query)||item.modelWeightsId.toLowerCase().includes(query)||item.filename.toLowerCase().includes(query)));
+  const query=$('trajectorySearch').value.trim().toLowerCase(),humanOnly=$('interventionFilter').value==='human',outcome=$('outcomeFilter').value;
+  return trajectoryCollection.filter(item=>(!humanOnly||item.hasIntervention)
+    &&(outcome==='all'||(outcome==='success'&&item.isSuccess===true)||(outcome==='failure'&&item.isSuccess===false))
+    &&(!query||String(item.id).includes(query)||item.modelWeightsId.toLowerCase().includes(query)||item.filename.toLowerCase().includes(query)));
 }
 function renderTrajectoryList(){
   const list=$('trajectoryList'),items=filteredTrajectories(),humanCount=trajectoryCollection.filter(item=>item.hasIntervention).length;
   list.innerHTML='';$('interventionFilter').options[1].textContent=`只看含人工介入（${humanCount}）`;
+  $('outcomeFilter').options[1].textContent=`只看成功（${trajectoryCollection.filter(item=>item.isSuccess===true).length}）`;
+  $('outcomeFilter').options[2].textContent=`只看失败（${trajectoryCollection.filter(item=>item.isSuccess===false).length}）`;
   const successes=items.filter(item=>item.isSuccess===true).length,failures=items.filter(item=>item.isSuccess===false).length,unknown=items.length-successes-failures;
   $('trajectoryFilterCount').textContent=`显示 ${items.length} / ${trajectoryCollection.length} 条 · 含介入 ${humanCount} 条\n当前列表：成功 ${successes} · 失败 ${failures} · 未知 ${unknown}`;
   items.forEach(item=>{
@@ -83,12 +113,12 @@ function renderTrajectoryList(){
     const button=document.createElement('button');
     button.className='trajectory-item'+(item.path===activeTrajectoryPath&&(item.episodeId??null)===activeEpisodeId?' active':'')+(item.isSuccess===false?' failed':item.hasIntervention?' intervened':'');
     button.dataset.path=item.path;button.dataset.episode=item.episodeId??'';
-    button.innerHTML=`<strong>${item.episodeId!==undefined?'Episode':'Trajectory'} ${item.id}</strong><div class="trajectory-badges"><span class="outcome-badge ${outcome.className}" title="${escapeHtml(item.outcomeSource||'未记录明确结果')}">${outcome.name}</span>${item.hasIntervention?'<span class="intervention-badge">含人工介入</span>':''}</div><small>${escapeHtml(item.modelWeightsId)}</small><span class="item-meta"><span>${item.numSamples} samples</span><span>${formatBytes(item.fileBytes)}</span></span>${item.episodeId!==undefined?`<small class="review-badge">${item.reviewStale?'源数据已变化':item.reviewCount?'已保留 '+item.reviewCount+' 段':item.reviewed?'已检查 · 无保留':'待检查'}</small>`:''}`;
+    button.innerHTML=`<strong>${item.episodeId!==undefined?'Episode':'Trajectory'} ${item.id}</strong><div class="trajectory-badges"><span class="outcome-badge ${outcome.className}" title="${escapeHtml(item.outcomeSource||'未记录明确结果')}">${outcome.name}</span>${item.hasIntervention?'<span class="intervention-badge">含人工介入</span>':''}</div><small>${escapeHtml(item.modelWeightsId)}</small><span class="item-meta"><span>${item.numSamples} samples</span><span>${formatBytes(item.fileBytes)}</span></span>${item.episodeId!==undefined?`<small class="gate-sidebar-badge">门控：${item.gateReviewed?'已标注':'未标注'}</small><small class="review-badge">${item.reviewStale?'源数据已变化':item.reviewCount?'已保留 '+item.reviewCount+' 段':item.reviewed?'已检查 · 无保留':'待检查'}</small>`:''}`;
     button.onclick=()=>loadTrajectory(item.path,true,item.episodeId);list.append(button);
   });
-  if(!items.length){const empty=document.createElement('p');empty.className='trajectory-empty';empty.textContent='没有匹配的轨迹，可清空搜索或切换为全部轨迹。';list.append(empty)}
+  if(!items.length){const empty=document.createElement('p');empty.className='trajectory-empty';empty.textContent='没有匹配的轨迹，可清空搜索，或将筛选改为“全部轨迹”和“全部结果”。';list.append(empty)}
 }
-async function filterInterventions(){
+async function applyTrajectoryFilters(){
   renderTrajectoryList();const items=filteredTrajectories();
   if(items.length&&!items.some(item=>item.path===activeTrajectoryPath&&(item.episodeId??null)===activeEpisodeId))await loadTrajectory(items[0].path,true,items[0].episodeId);
 }
@@ -145,7 +175,7 @@ async function togglePlay(){
   }
   let last=performance.now();playbackTimer=setInterval(()=>{const now=performance.now(),next=timelineTime+(now-last)/1000*Number($('speedSelect').value);last=now;seekTo(next);if(next>=(activeFrames()-1)/meta.fps)pausePlayback()},100);
 }
-function updateTimeline(time){if(!meta||!activeFrames())return;timelineTime=time;if(!seeking)$('timeline').value=time;const frame=frameAtTime(time);$('timeReadout').textContent=`${formatTime(time)} / ${formatTime(activeDuration())}`;$('frameReadout').textContent=`Frame ${frame} / ${activeFrames()-1}`;if(meta.sourceType==='lerobot')$('chunkReadout').textContent=`Episode ${meta.episodeId} · 帧 ${frame}`;else if(!validOnly())$('chunkReadout').textContent='Chunk '+Math.floor(frame/meta.stepsPerChunk)+' · Step '+frame%meta.stepsPerChunk;drawChart(frame);updateReward(frame);Review.position(time);Control.position(frame);clearTimeout(frameRequest);const version=++frameRequestVersion;frameRequest=setTimeout(()=>loadFrame(frame,version),80)}
+function updateTimeline(time){if(!meta||!activeFrames())return;timelineTime=time;if(!seeking)$('timeline').value=time;const frame=frameAtTime(time);$('timeReadout').textContent=`${formatTime(time)} / ${formatTime(activeDuration())}`;$('frameReadout').textContent=`Frame ${frame} / ${activeFrames()-1}`;if(meta.sourceType==='lerobot')$('chunkReadout').textContent=`Episode ${meta.episodeId} · 帧 ${frame}`;else if(!validOnly())$('chunkReadout').textContent='Chunk '+Math.floor(frame/meta.stepsPerChunk)+' · Step '+frame%meta.stepsPerChunk;drawChart(frame);updateReward(frame);Review.position(time);Gate.position(time);Control.position(frame);clearTimeout(frameRequest);const version=++frameRequestVersion;frameRequest=setTimeout(()=>loadFrame(frame,version),80)}
 async function loadFrame(frame,version){try{const result=await api(`/api/frame?index=${frame}${validQuery()}`);if(version!==frameRequestVersion)return;const position=meta.sourceType==='lerobot'?`Episode ${meta.episodeId} · 帧 ${result.sourceIndex}`:`Chunk ${result.chunk} · Step ${result.step}`;$('currentLocation').textContent=position;$('chunkReadout').textContent=position;$('frameValues').innerHTML=Object.entries(result.values).map(([k,v])=>`<div class="value-row"><label>${escapeHtml(k)}</label><code>${escapeHtml(Array.isArray(v)?v.map(x=>typeof x==='number'?Number(x).toFixed(4):x).join(', '):String(v))}</code></div>`).join('')}catch(e){}}
 
 function renderRewards(){const canvas=$('rewardCanvas'),box=canvas.getBoundingClientRect(),dpr=window.devicePixelRatio||1,w=Math.max(1,box.width),h=Math.max(1,box.height);canvas.width=w*dpr;canvas.height=h*dpr;const c=canvas.getContext('2d');c.scale(dpr,dpr);c.clearRect(0,0,w,h);const mid=h/2,bar=Math.max(1,w/Math.max(1,rewardValues.length));Control.ranges().filter(s=>s.phase==='human').forEach(s=>{if(rewardValues.length){c.fillStyle='#dbeafe';c.fillRect(s.startFrame/rewardValues.length*w,0,(s.endFrame-s.startFrame)/rewardValues.length*w,h)}});c.strokeStyle='#dfe4e8';c.lineWidth=1;c.beginPath();c.moveTo(0,mid);c.lineTo(w,mid);c.stroke();if(!rewardValues.length)return;const maxAbs=Math.max(1e-9,...rewardValues.map(Math.abs));rewardValues.forEach((value,index)=>{const x=index/rewardValues.length*w;if(value===0){c.fillStyle='#cbd3da';c.fillRect(x,mid-1,Math.max(1,bar),2);return}const height=Math.max(5,Math.abs(value)/maxAbs*(h/2-8));c.fillStyle=value>0?'#087f5b':'#c92a2a';c.fillRect(x,value>0?mid-height:mid,Math.max(2,bar),height)});c.fillStyle='#7b8793';c.font='9px sans-serif';c.fillText('+',5,11);c.fillText('0',5,mid-4);c.fillText('−',5,h-5)}
@@ -158,7 +188,7 @@ function drawChart(frame){const canvas=$('chart'),box=canvas.getBoundingClientRe
 
 function renderTree(root,container){container.innerHTML='';const make=(key,node,depth=0)=>{const wrap=document.createElement('div');wrap.className='tree-node';const row=document.createElement('div');row.className='tree-row';const children=node.children;row.innerHTML=`${children?'<button class="tree-toggle">▾</button>':'<span class="tree-toggle"></span>'}<span class="tree-key">${escapeHtml(key)}</span><span class="tree-type ${node.type==='h264'?'h264':''}">${escapeHtml(node.type)}</span><span class="tree-meta">${node.shape?'['+node.shape.join(' × ')+'] ':''}${node.dtype?escapeHtml(node.dtype)+' ':''}${node.bytes!==undefined?formatBytes(node.bytes):''}${node.value!==undefined?'= '+escapeHtml(node.value):''}</span>`;wrap.append(row);if(children){const childWrap=document.createElement('div');childWrap.className='tree-children';Object.entries(children).forEach(([k,v])=>childWrap.append(make(k,v,depth+1)));wrap.append(childWrap);row.querySelector('button').onclick=()=>{childWrap.classList.toggle('collapsed');row.querySelector('button').textContent=childWrap.classList.contains('collapsed')?'▸':'▾'}}return wrap};container.append(make('trajectory',root))}
 
-$('loadBtn').onclick=openInput;$('pathInput').onkeydown=e=>{if(e.key==='Enter')openInput()};$('sidebarToggle').onclick=collapseTrajectorySidebar;$('sidebarOpen').onclick=expandTrajectorySidebar;$('trajectorySearch').oninput=renderTrajectoryList;$('interventionFilter').onchange=filterInterventions;$('playBtn').onclick=togglePlay;$('backBtn').onclick=()=>stepFrame(-1);$('forwardBtn').onclick=()=>stepFrame(1);$('timeline').oninput=e=>seekTo(Number(e.target.value));$('validOnly').onchange=async()=>{refreshMedia();await Promise.all([loadDefaultSeries(),loadRewards(),Control.load()]);seekTo(0)};$('speedSelect').onchange=e=>videos.forEach(v=>v.playbackRate=Number(e.target.value));$('seriesSelect').onchange=loadDefaultSeries;videos.forEach(video=>{video.ontimeupdate=()=>{if(video===playbackVideo())updateTimeline(video.currentTime)};video.onended=()=>{if(video===playbackVideo())pausePlayback()};video.addEventListener('seeking',()=>syncVideos(video));video.onerror=()=>{if(!video.getAttribute('src'))return;$('mediaMessage').textContent='相机视频加载失败，可继续查看数值数据。请检查源视频文件和服务端日志。';$('mediaMessage').classList.remove('hidden')}});$('rewardTrack').onmousemove=showRewardTooltip;$('rewardTrack').onmouseleave=()=>{$('rewardTooltip').style.display='none'};$('rewardTrack').onclick=e=>seekTo(rewardFrameFromEvent(e)/(meta?.fps||30));window.addEventListener('resize',()=>{renderChartBase();drawChart();renderRewards()});$('treeSearch').oninput=e=>{const q=e.target.value.toLowerCase();document.querySelectorAll('.tree-node').forEach(n=>{const own=n.firstElementChild?.querySelector('.tree-key')?.textContent.toLowerCase()||'';n.style.display=!q||own.includes(q)||n.textContent.toLowerCase().includes(q)?'':'none'})};
+$('loadBtn').onclick=openInput;$('pathInput').onkeydown=e=>{if(e.key==='Enter')openInput()};$('sidebarToggle').onclick=collapseTrajectorySidebar;$('sidebarOpen').onclick=expandTrajectorySidebar;$('trajectorySearch').oninput=renderTrajectoryList;$('interventionFilter').onchange=applyTrajectoryFilters;$('outcomeFilter').onchange=applyTrajectoryFilters;$('playBtn').onclick=togglePlay;$('backBtn').onclick=()=>stepFrame(-1);$('forwardBtn').onclick=()=>stepFrame(1);$('timeline').oninput=e=>seekTo(Number(e.target.value));$('validOnly').onchange=async()=>{refreshMedia();await Promise.all([loadDefaultSeries(),loadRewards(),Control.load()]);seekTo(0)};$('speedSelect').onchange=e=>videos.forEach(v=>v.playbackRate=Number(e.target.value));$('seriesSelect').onchange=loadDefaultSeries;videos.forEach(video=>{video.ontimeupdate=()=>{if(video===playbackVideo())updateTimeline(video.currentTime)};video.onended=()=>{if(video===playbackVideo())pausePlayback()};video.addEventListener('seeking',()=>syncVideos(video));video.onerror=()=>{if(!video.getAttribute('src'))return;$('mediaMessage').textContent='相机视频加载失败，可继续查看数值数据。请检查源视频文件和服务端日志。';$('mediaMessage').classList.remove('hidden')}});$('rewardTrack').onmousemove=showRewardTooltip;$('rewardTrack').onmouseleave=()=>{$('rewardTooltip').style.display='none'};$('rewardTrack').onclick=e=>seekTo(rewardFrameFromEvent(e)/(meta?.fps||30));window.addEventListener('resize',()=>{renderChartBase();drawChart();renderRewards()});$('treeSearch').oninput=e=>{const q=e.target.value.toLowerCase();document.querySelectorAll('.tree-node').forEach(n=>{const own=n.firstElementChild?.querySelector('.tree-key')?.textContent.toLowerCase()||'';n.style.display=!q||own.includes(q)||n.textContent.toLowerCase().includes(q)?'':'none'})};
 
 $('openTraining').onclick=()=>openDataset(navigationContext.trainingDirectory);$('returnOriginal').onclick=()=>openDataset(navigationContext.sourceDirectory,navigationContext.sourceEpisodeId??null,meta?.segmentId??null);
 const params=new URLSearchParams(location.search);if(params.get('file')){$('pathInput').value=params.get('file');openInput({episodeId:params.has('episode')?Number(params.get('episode')):null,segmentId:params.get('segment')})}

@@ -27,7 +27,7 @@ Windows PowerShell 中激活虚拟环境：
 在项目目录中运行：
 
 ```bash
-source .venv/bin/activate
+source /16T-2/sudu/code/RLinf/.venv/bin/activate
 python app.py
 ```
 
@@ -56,6 +56,8 @@ REPLAY_VIEWER_HOST=127.0.0.1 REPLAY_VIEWER_PORT=9000 python app.py
 载入后可以播放多相机画面、逐帧查看数据、切换状态曲线并查看 reward。页面默认剔除 `chunk_valid_mask` 标记的无效帧，可通过工具栏复选框关闭。
 
 左侧用“含人工介入”标记对应轨迹；选择“只看含人工介入”可筛选并跳转到匹配轨迹，列表同时显示匹配数量。
+
+其下的结果筛选支持“全部结果／只看成功／只看失败”，可与人工介入筛选和搜索叠加使用，两个标注模式都适用。未知结果只出现在“全部结果”中。切换筛选时，如果当前轨迹不符合条件，会跳转到第一条匹配轨迹；打开新数据集时重置两个筛选。
 
 左侧每条轨迹及顶部文件信息显示结果标签：**绿色“成功”、红色“失败”、灰色“未知”**；列表上方统计当前筛选结果中的三类数量。结果标签与“含人工介入”可同时显示，悬停可查看判断依据。原始 LeRobot 使用 `episode_success` 标注；RLinf replay 使用末个有效帧的终止奖励（1=成功、0=失败）。没有终止结果、被截断、奖励未标注或不是 0/1 时显示未知，不把中途裁剪片段判为失败，也不以较早出现的成功奖励代表片段末端结果。
 
@@ -119,3 +121,61 @@ buffer.close()
 LeRobot 导出中每个区间成为独立 episode，重新编号 `episode_index`、`frame_index`、`index` 和时间戳，并重建数据统计及视频偏移。动作、状态、接管标记逐帧复制；视频按精确帧边界裁剪并重新编码为 H.264（CRF 18）。原始人工接管和阶段区间会裁剪并平移；未完整保留 episode 的整体成功标签设为 `unknown`，截断成功阶段终点时其 outcome 也设为 `unknown`。图像统计从每段最多 32 帧缩放到 64×64 后计算。人工末端结果保存在裁剪清单和 replay 中，不重写源阶段标签。原始 parquet 和视频文件不被裁剪或覆盖。
 
 修改代码后需重启 `python app.py` 并刷新页面。回归检查：`python -m unittest -v test_app test_review`。
+
+## Actor 门控：按开启／关闭两帧标注完整轨迹
+
+这项标注用于训练“是否开启 actor”的分类器。打开**完整原始 LeRobot v3 数据集**，例如：
+
+```text
+/16T-2/sudu/code/.data/RLinf/zd_89_261027
+/16T-2/sudu/code/.result2/RLT/RLinf/zd89_20261027/source_cache/dataset
+```
+
+视频上方的模式栏显示当前模式，点击同一个切换按钮即可在“Actor 起止标定”和“片段裁剪”之间切换，每次只显示对应标注面板。默认进入 Actor 起止标定，并记住上次选择。切换时视频位置、未保存草稿和已保存标注保留；只有当前模式的标注快捷键生效，空格和方向键仍可控制视频。
+
+选择“Actor 起止标定”后，在视频下方使用“Actor 门控 · 开启与关闭标注”：
+
+1. 播放或逐帧定位到扎带接近孔口、应该开始使用 actor 的第一帧，点击“当前帧设为开启”，也可按 `[`。
+2. 定位到已经确认成功穿过、应该关闭 actor 的第一帧，点击“当前帧设为关闭”，也可按 `]`。
+3. 界面分别显示开启、关闭两帧的三路相机图片；点击缩略图可打开原尺寸图片核对，也可直接输入帧号、点击时间轴跳转。
+4. 点击“保存标注并自动导出”。每条 episode 保存一对边界，可再次调整并保存。保存的标签在刷新和重启后仍保留。
+
+标签区间为 **`[开启帧, 关闭帧)`**：开启帧标1，关闭帧本身以及其后标0。例如开启帧100、关闭帧350，则帧100～349标1，其他帧标0。**不限制100帧或200帧，也不自动把末尾一段视为正样本。** 接近至穿过期间的重试是否保持开启，由人工选择的边界决定。
+
+“确认整条均为0”仅用于人工确认没有任何 actor 开启阶段的完整轨迹。“移除此条门控标注”会恢复为未标注，并从导出中排除；未标注轨迹不会自动作为负样本。旧的动作裁剪标注不会自动转换为门控标签。
+
+标注保存为原数据集目录下的 `actor_gate_annotations.json`。每次保存、修改或删除后，后台自动更新同目录的 `actor_gate_training/`，它是**全部已人工标注 episode 的完整快照**：
+
+| 文件 | 内容 |
+|---|---|
+| `labels_manifest.json` | 原始数据集路径、episode编号、开/关边界、帧数、来源指纹、相机顺序和原视频路径 |
+| `labels/episode_*.npz` | 完整 episode 的 `labels`、`state`、`frame_index`、`source_index`、`timestamp` 和 `video_frame_indices` |
+| `data/episode_*.parquet` | 完整 episode 的原始数值列，新增 `annotation.actor_gate`，不改变动作、reward、人工介入等字段 |
+| `images/episode_*_{start,end}_*.jpg` | 人工选择的开/关两帧的各路相机原尺寸图片 |
+| `frame_labels.csv` | 所有已标注 episode 的逐帧0/1标签，可从界面下载 |
+| `gate_export.json`、`actor_gate_annotations.json` | 导出版本及对应标注快照 |
+
+**原始视频不复制、不裁剪、不覆盖**。训练时用清单中的原视频路径和 NPZ 中的逐帧视频索引取图；移动数据时需同步更新源路径。该目录是门控分类数据包，不是动作 replay，也不是独立可迁移的 LeRobot 视频数据集。现有按成功片段生成标签的训练准备入口应改读此清单，不能再用旧成功裁剪区间覆盖人工门控标签。
+
+读取数值与标签示例：
+
+```python
+import json
+from pathlib import Path
+import numpy as np
+
+root = Path('/path/to/original_dataset/actor_gate_training')
+manifest = json.loads((root / 'labels_manifest.json').read_text())
+for episode in manifest['episodes']:
+    with np.load(root / episode['labels_file']) as data:
+        labels = data['labels']             # [N]，关闭帧为0
+        state = data['state']               # [N, state_dim]，完整原始状态
+        source_index = data['source_index'] # 原始数据行索引
+        video_frames = data['video_frame_indices']  # [N, cameras]
+    # 按 episode 划分训练/验证，不能随机拆分相邻帧。
+    # 按 episode['camera_order'] 和 episode['media'] 读取对应图像。
+```
+
+导出在暂存目录中完成，成功后替换本查看器拥有的旧导出；失败时旧导出保留，标注仍已保存，可点击“重新导出已标注轨迹”。源数据变化或并发旧版本写入会被拒绝。训练进程读取期间不要重新导出同一目录。
+
+回归检查：`python -m unittest -v test_gate test_app test_review`。
